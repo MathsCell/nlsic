@@ -137,7 +137,6 @@ join=function(sep, v, ...) {
 #' @export
 nlsic=function(par, r, u=NULL, co=NULL, control=list(), e=NULL, eco=NULL, flsi=lsi, ...) {
 #print(match.call())
-   numDeriv=NULL # to keep R CMD check calm
    n=length(par)
    m=NROW(co)
    nm_par=names(par)
@@ -330,7 +329,7 @@ nlsic=function(par, r, u=NULL, co=NULL, control=list(), e=NULL, eco=NULL, flsi=l
          }
       }
       if (is.null(a)) {
-         if (requireNamespace(numDeriv, quietly = TRUE)) {
+         if (requireNamespace("numDeriv", quietly = TRUE)) {
             a=numDeriv::jacobian(function(x) as.numeric(r(x, cjac=FALSE, ...)$res), par)[iva,,drop=FALSE]
             colnames(a)=nm_par
          } else {
@@ -536,7 +535,7 @@ nlsic=function(par, r, u=NULL, co=NULL, control=list(), e=NULL, eco=NULL, flsi=l
          a=r(par, TRUE, ...)$jacobian
          if (is.null(a)) {
 #cat("num jac", par, sep="\n")
-            if (requireNamespace(numDeriv, quietly = TRUE)) {
+            if (requireNamespace("numDeriv", quietly = TRUE)) {
                a=numDeriv::jacobian(function(x) as.numeric(r(x, cjac=FALSE, ...)$res), par)
                colnames(a)=nm_par
             } else {
@@ -1341,8 +1340,7 @@ equa2vecmat=function(nm_par, linear, sep="=") {
 }
 
 lsi_lim=function(a, b, u=NULL, co=NULL, rcond=1.e10, mnorm=NULL, x0=NULL) {
-   limSolve=NULL # to keep R CMD check calm
-   if (requireNamespace(limSolve, quietly = TRUE))
+   if (requireNamespace("limSolve", quietly = TRUE))
       suppressWarnings(limSolve::lsei(A=a, B=b, G=u, H=co)$X)
 }
 

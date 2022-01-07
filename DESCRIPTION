@@ -11,7 +11,7 @@ Maintainer: Serguei Sokol <sokol@insa-toulouse.fr>
 Description: We solve non linear least squares problems with optional
     equality and/or inequality constraints. Non linear iterations are
     globalized with back-tracking method. Linear problems are solved by
-    dense QR decomposition from LAPACK which can limit the size of
+    dense QR decomposition from 'LAPACK' which can limit the size of
     treated problems. On the other side, we avoid condition number
     degradation which happens in classical quadratic programming approach.
     Inequality constraints treatment on each non

@@ -960,9 +960,10 @@ ls_ln_old=function(a, b, rcond=1.e10) {
 
 #' Linear Least Squares, least norm solution
 #'
-#' @param a matrix
+#' @param a matrix or its QR decomposition
 #' @param b vector of right hand side
 #' @param rcond maximal condition number for rank definition
+#' @return solution vector
 #' @export
 ls_ln=function(a, b, rcond=1.e10) {
    # least squares with least norm
@@ -1071,6 +1072,7 @@ lsie_ln=function(a, b, u=NULL, co=NULL, e=NULL, ce=NULL, rcond=1.e10) {
 #' @param a dense matrix
 #' @param b right hand side vector
 #' @param rcond maximal condition number for determining rank deficient matrix
+#' @return solution vector
 #' @export
 ls_ln_svd=function(a, b, rcond=1.e10) {
    sa=svd(a)
@@ -1088,6 +1090,7 @@ ls_ln_svd=function(a, b, rcond=1.e10) {
 #'
 #' @param a matrix
 #' @param b right hand side vector
+#' @return solution vector
 #' @export
 tls=function(a, b) {
    # total least square by svd

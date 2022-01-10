@@ -13,6 +13,9 @@ ls_ln_svd(a, b, rcond = 1e+10)
 
 \item{rcond}{maximal condition number for determining rank deficient matrix}
 }
+\value{
+solution vector
+}
 \description{
 Least squares \code{a\%*\%x ~= b} of least norm ||x|| by using svd(a)
 }

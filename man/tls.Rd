@@ -11,6 +11,9 @@ tls(a, b)
 
 \item{b}{right hand side vector}
 }
+\value{
+solution vector
+}
 \description{
 Total Least Squares \code{a\%*\%x ~= b}
 }

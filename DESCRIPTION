@@ -1,6 +1,6 @@
 Package: nlsic
 Title: Non Linear Least Squares with Inequality Constraints
-Version: 1.0
+Version: 1.0.1
 Authors@R: 
     person(given = "Serguei",
            family = "Sokol",

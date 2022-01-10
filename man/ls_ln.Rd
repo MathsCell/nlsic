@@ -7,11 +7,14 @@
 ls_ln(a, b, rcond = 1e+10)
 }
 \arguments{
-\item{a}{matrix}
+\item{a}{matrix or its QR decomposition}
 
 \item{b}{vector of right hand side}
 
 \item{rcond}{maximal condition number for rank definition}
+}
+\value{
+solution vector
 }
 \description{
 Linear Least Squares, least norm solution

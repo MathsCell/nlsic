@@ -9,7 +9,7 @@ lsi(a, b, u = NULL, co = NULL, rcond = 1e+10, mnorm = NULL, x0 = NULL)
 \arguments{
 \item{a}{dense matrix A or its QR decomposition}
 
-\item{b}{right hand side vector}
+\item{b}{right hand side vector. Rows containing NA are dropped.}
 
 \item{u}{dense matrix of inequality constraints}
 
@@ -29,11 +29,12 @@ solve linear least square problem (min ||A\%\emph{\%x-b||)
 with inequality constraints \code{u\%}\%x>=co}
 }
 \details{
-Method:
+Method:\cr
 \enumerate{
-\item reduce the problem to ldp (min(xat*xa) => least distance programming)
-\item solve ldp
-\item change back to x
+\item reduce the problem to ldp (min(xat*xa) => least distance programming)\cr
+\item solve ldp\cr
+\item change back to x\cr
+If b is all NA, then a vector of NA is returned.
 }
 
 mnrom, and x0 are dummy parameters which are here to make lsi()

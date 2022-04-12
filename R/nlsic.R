@@ -600,7 +600,7 @@ nlsic=function(par, r, u=NULL, co=NULL, control=list(), e=NULL, eco=NULL, flsi=l
 #' solve linear least square problem (min ||A%*%x-b||)
 #' with inequality constraints \code{u%*%x>=co}
 #' @param a dense matrix A or its QR decomposition
-#' @param b right hand side vector
+#' @param b right hand side vector. Rows containing NA are dropped.
 #' @param u dense matrix of inequality constraints
 #' @param co right hand side vector of inequality constraints
 #' @param rcond maximal condition number for determining rank deficient matrix
@@ -609,16 +609,27 @@ nlsic=function(par, r, u=NULL, co=NULL, control=list(), e=NULL, eco=NULL, flsi=l
 #' @return solution vector whose attribute 'mes' may contain a message about possible numerical problems
 #' @seealso [lsi_ln], [ldp], [base::qr]
 #' @details
-#' Method:
-#' 1. reduce the problem to ldp (min(xat*xa) => least distance programming)
-#' 2. solve ldp
-#' 3. change back to x
+#' Method:\cr
+#' 1. reduce the problem to ldp (min(xat*xa) => least distance programming)\cr
+#' 2. solve ldp\cr
+#' 3. change back to x\cr
+#' If b is all NA, then a vector of NA is returned.
 #'
 #' mnrom, and x0 are dummy parameters which are here to make lsi()
 #' compatible with lsi_ln() argument list
 #' @export
 lsi=function(a, b, u=NULL, co=NULL, rcond=1.e10, mnorm=NULL, x0=NULL) {
    tol=1.e-10
+   # remove NA from b
+   i0=which(is.na(b))
+   if (length(i0)) {
+      if (length(i0) == length(b)) # all NA
+         return(rep(NA_real_, if (is.qr(a)) ncol(a$qr) else ncol(a)))
+      if (is.qr(a))
+         a=qr.X(a)
+      a=a[-i0,,drop=FALSE]
+      b=b[-i0]
+   }
    if (! is.qr(a)) {
       n=ncol(a)
       aq=base::qr(a, LAPACK=TRUE)
@@ -645,7 +656,8 @@ lsi=function(a, b, u=NULL, co=NULL, rcond=1.e10, mnorm=NULL, x0=NULL) {
          sep="")
       return(x)
    }
-   x0=qr.solve(aq, b)
+   #x0=qr.solve(aq, b)
+   x0=qr.coef(aq, b)
    if (!is.null(u) && nrow(u)>0) {
       # we do have inequalities
       # prepare variable change
@@ -870,6 +882,17 @@ ldp=function(u, co, rcond=1.e10) {
       return(double(n))
    }
    rcond=abs(rcond)
+   # eliminate NA from co
+   i0=which(is.na(co))
+   if (length(i0) > 0) {
+      u=u[-i0,,drop=FALSE]
+      co=co[-i0]
+      m=m-length(i0)
+      if (m == 0) {
+         # no inequality to satisfy => all NA
+         return(rep(NA_real_, n))
+      }
+   }
    # eliminate 0 rows from u
    maxu=apply(u, 1, function(v) max(abs(v)))
    i0=which(maxu < 1.e-13)

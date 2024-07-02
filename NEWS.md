@@ -1,4 +1,14 @@
-# nlsic 1.0.2 (2020-04-12)
+# nlsic 1.0.4 (2023-06-26)
+
+ * nlsic(): fixed error reporting when step has NA
+ * nlsic(): fixed error reporting when inequalities are not satisfied
+
+# nlsic 1.0.3 (2022-04-29)
+
+ * nlsic(): fixed error when par is a matrix and u=NULL
+ * nlsic(): added `paro` field in returned result with original structure of `par`
+
+# nlsic 1.0.2 (2022-04-12)
 
  * now, lsi() returns NA vector if rhs is all NA.
 

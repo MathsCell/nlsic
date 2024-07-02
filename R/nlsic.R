@@ -70,7 +70,8 @@ join=function(sep, v, ...) {
 #' see interfaces in \code{lsi} or \code{lsi_ln} help pages.
 #' @return a list with following components (some components can be absent depending
 #' on 'control' parameter)
-#'    - 'par' estimated values of par
+#'    - 'par' estimated values of par as vector
+#'    - 'paro' the same but in original structure (i.e. matrix if par is a matrix) 
 #'    - 'lastp' the last LSI solution during non linear iterations
 #'    - 'hci' vector of half-width confidence intervals for par
 #'    - 'ci_p' p-value for which CI was calculated
@@ -230,7 +231,7 @@ nlsic=function(par, r, u=NULL, co=NULL, control=list(), e=NULL, eco=NULL, flsi=l
             ))
          }
          laststep=nte%*%x
-         par[]=c(par)+laststep
+         par[]=par+c(laststep)
       } else {
          x=ldp(u, ine, con$rcond)
          if (is.null(x)) {
@@ -245,7 +246,7 @@ nlsic=function(par, r, u=NULL, co=NULL, control=list(), e=NULL, eco=NULL, flsi=l
             ))
          }
          laststep=x
-         par[]=c(par)+laststep
+         par[]=par+c(laststep)
       }
    }
 
@@ -267,6 +268,7 @@ nlsic=function(par, r, u=NULL, co=NULL, control=list(), e=NULL, eco=NULL, flsi=l
          if (!is.null(lres$err) && lres$err) {
             return(list(
                par=c(par),
+               paro=par,
                retres=lres,
                it=it,
                btit=btit,
@@ -335,6 +337,7 @@ nlsic=function(par, r, u=NULL, co=NULL, control=list(), e=NULL, eco=NULL, flsi=l
          } else {
             return(list(
                par=c(par),
+               paro=par,
                it=it,
                btit=btit,
                error=1,
@@ -363,7 +366,38 @@ nlsic=function(par, r, u=NULL, co=NULL, control=list(), e=NULL, eco=NULL, flsi=l
             p=flsi(a, -vres, u, ine, rcond=con$rcond)
          }
       }
-      stopifnot(all(u%*%(par+p)-co >= -tol))
+      if (anyNA(p)) {
+         names(par)=nm_par
+         return(list(
+            par=c(par),
+            paro=par,
+            it=it,
+            btit=btit,
+            error=1,
+            history=hist,
+            jacobian=a,
+            retres=lres,
+            step=p,
+            mes=paste("nlsic: NA found in the step",
+               attr(p, "mes"), sep="\n")))
+      } else if (! is.null(attr(p, "mes"))) {
+         mes=join("\n", mes, attr(p, "mes"))
+      }
+      if (!all(u%*%(c(par)+c(p))-co >= -tol)) {
+         names(par)=nm_par
+         return(list(
+            par=c(par),
+            paro=par,
+            it=it,
+            btit=btit,
+            error=1,
+            history=hist,
+            jacobian=a,
+            retres=lres,
+            step=p,
+            mes=paste("nlsic: found step does not satisfy inequalities",
+               attr(p, "mes"), sep="\n")))
+      }
       names(p)=nm_par
 #browser()
       if (con$history) {
@@ -373,28 +407,13 @@ nlsic=function(par, r, u=NULL, co=NULL, control=list(), e=NULL, eco=NULL, flsi=l
          hres=cbind(hres, res)
          hist=list(par=hpar, p=hp, res=hres, step=hstep)
       }
-      if (anyNA(p)) {
-         names(par)=nm_par
-         return(list(
-            par=c(par),
-            it=it,
-            btit=btit,
-            error=1,
-            history=hist,
-            jacobian=a,
-            retres=lres,
-            mes=paste("nlsic: Problem in solving linear problem with constraint",
-               attr(p, "mes"), sep="\n")))
-      } else if (! is.null(attr(p, "mes"))) {
-         mes=join("\n", mes, attr(p, "mes"))
-      }
 
       normp=sqrt(norm2(p))
       converged=(normp <= con$errx)
       if (normp == 0) {
          ############### no need for backtracking at this stage
          laststep=p
-         par[]=c(par)+laststep
+         par[]=par+c(laststep)
          it=it+1
          btit=0
          resdecr=NULL
@@ -473,7 +492,7 @@ nlsic=function(par, r, u=NULL, co=NULL, control=list(), e=NULL, eco=NULL, flsi=l
             h=max(min(2., 1./(2.-(norres-norb)*(norres+norb)/(resap*k))), con$btfrac)
             # check that p*k*h won't violate inequalities (for h > 1 only)
             if (h > 1. && nrow(u) > 0) {
-               if (any(u%*%(c(par)+(k*h)*p)-co <= -tol)) {
+               if (any(u%*%(c(par)+c((k*h)*p))-co <= -tol)) {
                   h=con$btfrac
                }
             }
@@ -488,6 +507,7 @@ nlsic=function(par, r, u=NULL, co=NULL, control=list(), e=NULL, eco=NULL, flsi=l
       if (inherits(lres, "try-error")) {
          return(list(
             par=c(par),
+            paro=par,
             laststep=rep(NA, length(par)),
             retres=lres,
             it=it,
@@ -497,12 +517,12 @@ nlsic=function(par, r, u=NULL, co=NULL, control=list(), e=NULL, eco=NULL, flsi=l
          ))
       }
 
-      par[]=c(par)+laststep
+      par[]=par+c(laststep)
       it=it+1
       if (con$monotone) {
          if (norres > norb) {
             converged=T
-            mes=join("\n", mes, "nlsic: Non monotone descrease of cost function has occured.")
+            mes=join("\n", mes, "nlsic: Non monotone decrease of cost function has occurred.")
          }
       }
       if (con$trace && ((it < 10 || !it%%10) || converged)) {
@@ -541,6 +561,7 @@ nlsic=function(par, r, u=NULL, co=NULL, control=list(), e=NULL, eco=NULL, flsi=l
             } else {
                return(list(
                   par=c(par),
+                  paro=par,
                   it=it,
                   btit=btit,
                   error=1,
@@ -574,6 +595,7 @@ nlsic=function(par, r, u=NULL, co=NULL, control=list(), e=NULL, eco=NULL, flsi=l
    }
    return(list(
       par=c(par),
+      paro=par,
       lastp=c(p),
       hci=hci,
       ci_p=con$ci$p,

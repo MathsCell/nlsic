@@ -78,7 +78,8 @@ see interfaces in \code{lsi} or \code{lsi_ln} help pages.}
 a list with following components (some components can be absent depending
 on 'control' parameter)
 \itemize{
-\item 'par' estimated values of par
+\item 'par' estimated values of par as vector
+\item 'paro' the same but in original structure (i.e. matrix if par is a matrix)
 \item 'lastp' the last LSI solution during non linear iterations
 \item 'hci' vector of half-width confidence intervals for par
 \item 'ci_p' p-value for which CI was calculated

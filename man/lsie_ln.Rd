@@ -4,7 +4,17 @@
 \alias{lsie_ln}
 \title{Linear Least Squares problem with inequality and equality constraints, least norm solution}
 \usage{
-lsie_ln(a, b, u = NULL, co = NULL, e = NULL, ce = NULL, rcond = 1e+10)
+lsie_ln(
+  a,
+  b,
+  u = NULL,
+  co = NULL,
+  e = NULL,
+  ce = NULL,
+  rcond = 1e+10,
+  mnorm = NULL,
+  x0 = NULL
+)
 }
 \arguments{
 \item{a}{dense matrix A or its QR decomposition}
@@ -20,6 +30,11 @@ lsie_ln(a, b, u = NULL, co = NULL, e = NULL, ce = NULL, rcond = 1e+10)
 \item{ce}{right hand side vector of equality constraints}
 
 \item{rcond}{maximal condition number for determining rank deficient matrix}
+
+\item{mnorm}{matrix to be used to minimize the norm ||mnorm\%*\%x|| in
+case of under-dermined system. If mnorm is NULL (default), it is}
+
+\item{x0}{vector from which minimal norm should be searched when required}
 }
 \value{
 solution vector whose attribute 'mes' may contain a message about possible numerical problems

@@ -1,6 +1,6 @@
 Package: nlsic
 Title: Non Linear Least Squares with Inequality Constraints
-Version: 1.0.4
+Version: 1.1.0
 Authors@R: 
     person(given = "Serguei",
            family = "Sokol",
@@ -29,8 +29,8 @@ Description: We solve non linear least squares problems with optional
 License: GPL-2
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.1.1
-Depends: nnls
+RoxygenNote: 7.3.2
+Depends: nnls, dotty
 Suggests: numDeriv, RUnit, limSolve
 URL: https://github.com/MathsCell/nlsic
 BugReports: https://github.com/MathsCell/nlsic/issues

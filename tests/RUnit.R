@@ -1,17 +1,18 @@
-if (requireNamespace("RUnit", quietly=TRUE)) {
-   library(RUnit)
-   library(nlsic)
+Sys.unsetenv("R_TESTS")
+if (requireNamespace("RUnit", quietly=TRUE) && requireNamespace("nlsic", quietly=TRUE)) {
+  library(RUnit)
+  #library(nlsic)
+  testSuite <- RUnit::defineTestSuite(
+    name = "nlsic unit tests",
+    dirs = system.file("unitTests", package = "nlsic"),
+    testFuncRegexp = "^[Tt]est.+",
+    rngKind = "default",
+    rngNormalKind = "default"
+  )
+  tests <- RUnit::runTestSuite(testSuite)
 
-   testSuite <- defineTestSuite(
-      name = "nlsic unit tests",
-      dirs = system.file("unitTests", package = "nlsic"),
-      testFuncRegexp = "^[Tt]est.+"
-   )
-   Sys.setenv("R_TESTS"="")
-   tests <- runTestSuite(testSuite)
+  RUnit::printTextProtocol(tests)
 
-   printTextProtocol(tests)
-   err=getErrors(tests)
-   if (err$nFail > 0) stop("RUnit: ", err$nFail, " test failure(s)")
-   if (err$nErr > 0) stop("RUnit: ", err$nErr, " error(s) in RUnit tests")
+  if (RUnit::getErrors(tests)$nFail > 0) stop("RUnit test failure")
+  if (RUnit::getErrors(tests)$nErr > 0) stop("Errors in RUnit tests")
 }

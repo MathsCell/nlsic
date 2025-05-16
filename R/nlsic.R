@@ -1,4 +1,4 @@
-# Copyright 2011-2022, INRAE/INSA/CNRS
+# Copyright 2011-2025, INRAE/INSA/CNRS
 # Author: Serguei SOKOL, sokol@insa-toulouse.fr
 # License: GPL v2 http://www.gnu.org/licenses/gpl-2.0.html
 
@@ -13,6 +13,7 @@
 #' @return A joined string
 #' @examples
 #' join(" ", c("Hello", "World"))
+#' @importFrom dotty .
 #' @export
 join=function(sep, v, ...) {
   return(paste(c(v,...), sep="", collapse=sep))
@@ -71,7 +72,7 @@ join=function(sep, v, ...) {
 #' @return a list with following components (some components can be absent depending
 #' on 'control' parameter)
 #'    - 'par' estimated values of par as vector
-#'    - 'paro' the same but in original structure (i.e. matrix if par is a matrix) 
+#'    - 'paro' the same but in original structure (i.e. matrix if par is a matrix)
 #'    - 'lastp' the last LSI solution during non linear iterations
 #'    - 'hci' vector of half-width confidence intervals for par
 #'    - 'ci_p' p-value for which CI was calculated
@@ -144,7 +145,7 @@ nlsic=function(par, r, u=NULL, co=NULL, control=list(), e=NULL, eco=NULL, flsi=l
 
    # predefined controls, then overwritten by actual values
    con=list(errx=1.e-7, maxit=100, btstart=1., btfrac=0.5, btdesc=0.1,
-      btmaxit=15, btkmin=1.e-7, trace=0, rcond=1.e10, ci=list(p=0.95, report=T),
+      btmaxit=15, btkmin=1.e-7, trace=0, rcond=1.e10, ci=list(p=0.95, report=TRUE),
       history=FALSE, adaptbt=FALSE, mnorm=NULL, sln=FALSE, maxstep=NULL, monotone=FALSE)
    nmsC=names(con)
    nmsci=names(con$ci)
@@ -157,7 +158,7 @@ nlsic=function(par, r, u=NULL, co=NULL, control=list(), e=NULL, eco=NULL, flsi=l
    }
    con[(namc <- names(control))] <- control
    con$ci=ci
-   tol=1.e-10
+   tol=1./con$rcond
    mes=NULL
    if (length(noNms <- namc[!namc %in% nmsC])) {
       mes=join("", "nlsic: unknown name(s) in control: ", join(", ", noNms))
@@ -212,7 +213,7 @@ nlsic=function(par, r, u=NULL, co=NULL, control=list(), e=NULL, eco=NULL, flsi=l
          return(list(par=NULL, error=1, mes="nlsic: matrix e is rank deficient."))
       }
       # particular solution
-      parp=qr.qy(qe, c(backsolve(qe$qr, eco[qe$pivot], transpose=T), double(n-nr)))
+      parp=qr.qy(qe, c(backsolve(qe$qr, eco[qe$pivot], transpose=TRUE), double(n-nr)))
       ue=u%*%nte
       epar=crossprod(nte, c(par)-parp)
       par[]=nte%*%epar+parp
@@ -368,6 +369,9 @@ nlsic=function(par, r, u=NULL, co=NULL, control=list(), e=NULL, eco=NULL, flsi=l
       }
       if (anyNA(p)) {
          names(par)=nm_par
+         mes="nlsic: NA found in the step"
+         warning(mes)
+         mes=paste(mes, attr(p, "mes"), sep="\n")
          return(list(
             par=c(par),
             paro=par,
@@ -378,13 +382,15 @@ nlsic=function(par, r, u=NULL, co=NULL, control=list(), e=NULL, eco=NULL, flsi=l
             jacobian=a,
             retres=lres,
             step=p,
-            mes=paste("nlsic: NA found in the step",
-               attr(p, "mes"), sep="\n")))
+            mes=mes))
       } else if (! is.null(attr(p, "mes"))) {
          mes=join("\n", mes, attr(p, "mes"))
       }
-      if (!all(u%*%(c(par)+c(p))-co >= -tol)) {
+      if (!all(u%*%(c(par)+c(p))-co >= -tol*100)) {
          names(par)=nm_par
+         mes="nlsic: found step does not satisfy inequalities"
+         warning(mes)
+         mes=paste(mes, attr(p, "mes"), sep="\n")
          return(list(
             par=c(par),
             paro=par,
@@ -395,8 +401,7 @@ nlsic=function(par, r, u=NULL, co=NULL, control=list(), e=NULL, eco=NULL, flsi=l
             jacobian=a,
             retres=lres,
             step=p,
-            mes=paste("nlsic: found step does not satisfy inequalities",
-               attr(p, "mes"), sep="\n")))
+            mes=mes))
       }
       names(p)=nm_par
 #browser()
@@ -578,7 +583,7 @@ nlsic=function(par, r, u=NULL, co=NULL, control=list(), e=NULL, eco=NULL, flsi=l
       } else {
          jac=a
       }
-      covpar=try(solve(crossprod(jac)), silent=T)
+      covpar=try(solve(crossprod(jac)), silent=TRUE)
       if (inherits(covpar, "try-error")) {
          sv=svd(jac)
          covpar=tcrossprod(sv$v*rep(1./pmax(sv$d, 1./con$rcond), rep(nrow(sv$v), ncol(sv$v))))
@@ -641,100 +646,74 @@ nlsic=function(par, r, u=NULL, co=NULL, control=list(), e=NULL, eco=NULL, flsi=l
 #' compatible with lsi_ln() argument list
 #' @export
 lsi=function(a, b, u=NULL, co=NULL, rcond=1.e10, mnorm=NULL, x0=NULL) {
-   tol=1.e-10
+   tol=1./rcond
    # remove NA from b
    i0=which(is.na(b))
    if (length(i0)) {
+      # remove rows having NA in b
       if (length(i0) == length(b)) # all NA
          return(rep(NA_real_, if (is.qr(a)) ncol(a$qr) else ncol(a)))
       if (is.qr(a))
-         a=qr.X(a)
+         a=qr.X(a, ncol=ncol(a$qr))
       a=a[-i0,,drop=FALSE]
       b=b[-i0]
    }
-   if (! is.qr(a)) {
-      n=ncol(a)
-      aq=base::qr(a, LAPACK=TRUE)
-   } else {
-      n=ncol(a$qr)
-      aq=a
+   if (length(u) == 0L || (all(abs(u) <= tol) && all(co <= tol))) {
+      # no inequalities => plain LS
+      return(qr.solve(a, b))
    }
+   aq=if (! is.qr(a)) base::qr(a, LAPACK=TRUE) else a
+   n=ncol(aq$qr)
    d=abs(diag(aq$qr))
-#cat("d=", d, "\n")
-   aq$rank=sum(d>d[1]/rcond)
+   aq$rank=if (d[1L] <= tol) 0 else sum(d > d[1L]*tol)
    if (is.na(aq$rank)) {
       x=rep(NA, n)
-      attr(x, "mes")="lsi: Rank could not be estimated in least squares\n"
+      mes="lsi: Rank could not be estimated in least squares\n"
+      warning(mes)
+      attr(x, "mes")=mes
       return(x)
    }
    if (aq$rank < n) {
-      x=rep(NA, n)
-      attr(x, "mes")=
-         paste("lsi: Rank deficient matrix in least squares\n",
+      mes=paste("lsi: Rank deficient matrix in least squares. No solution is returned\n",
          n-aq$rank,
          " unsolvable variable(s):\n",
          paste(dimnames(a)[[2]][aq$pivot[-(1:aq$rank)]],
          aq$pivot[-(1:aq$rank)], sep="\t", collapse="\n"), "\n",
          sep="")
-      return(x)
+      warning(mes)
+      return(rep(NA_real_, n))
    }
-   #x0=qr.solve(aq, b)
-   x0=qr.coef(aq, b)
-   if (!is.null(u) && nrow(u)>0) {
-      # we do have inequalities
-      # prepare variable change
-      ut=t(base::backsolve(aq$qr, t(as.matrix(u[, aq$pivot, drop=FALSE])), transpose=TRUE))
-      xa=ldp(ut, co-u%*%x0, rcond)
-      if (is.null(xa)) {
-         # Infeasible constraints detected by ldp
-         xa=rep(NA, n)
-         attr(xa, "mes")="lsi: ldp() revealed unfeasible constrants"
-         return(xa)
-      }
-      x=xa
-      xa=base::backsolve(aq$qr, xa)
-      x[aq$pivot]=xa
-      x=x+x0
-      cou=co-u%*%x
-      if (any(cou > tol)) {
-         # round errors made fail inequality constraints
-         # force them as much as possible even by degrading the residual
-         dx=ldp(u, cou, rcond)
-         if (!is.null(dx)) {
-            x=x+dx
-         } # else leave x as is
-      }
-      #stopifnot(all(u%*%x-co >= -tol))
-   } else {
-      # plain QR
-      x=x0
+   # we do have inequalities and a full rank matrix
+   # prepare variable change
+   ut=t(base::backsolve(aq$qr, t(as.matrix(u[, aq$pivot, drop=FALSE])), transpose=TRUE))
+   x0=ls_0(aq, b)
+   xa=ldp(ut, co-u%*%x0, rcond)
+   if (is.null(xa)) {
+      # Infeasible constraints detected by ldp
+      xa=rep(NA, n)
+      attr(xa, "mes")="lsi: ldp() revealed unfeasible constrants"
+      return(xa)
+   }
+   x=xa
+   xa=base::backsolve(aq$qr, xa)
+   x[aq$pivot]=xa
+   x=x+x0
+   cou=co-u%*%x
+   if (any(ibad <- cou > tol*100)) {
+      ibad=which(ibad)
+      nm=rownames(u)[ibad]
+      mes=paste0("lsi: following ", length(ibad), " inequalities could be enforced:\n\t", paste0(ibad, if (is.null(nm)) NULL else
+         paste(":", nm, cou[ibad], sep="\t"), collapse="\n\t"))
+      warning(mes)
+      return(structure(rep(NA_real_, n), mes=mes))
    }
    return(x)
 }
-
-#' Linear Least Squares with Inequality constraints, least norm solution
-#'
-#' @description
-#' solve linear least square problem \code{min_x ||A*x-b||}
-#' with inequality constraints \code{u\%*\%x >= co}
-#' If A is rank deficient, least norm solution \code{||mnorm\%*\%(x-x0)||} is used.
-#' If the parameter mnorm is NULL, it is treated as an identity matrix.
-#' If the vector x0 is NULL, it is treated as 0 vector.
-#' @param a dense matrix A or its QR decomposition
-#' @param b right hand side vector
-#' @param u dense matrix of inequality constraints
-#' @param co right hand side vector of inequality constraints
-#' @param rcond maximal condition number for determining rank deficient matrix
-#' @param mnorm norm matrix (can be dense or sparse) for which \code{\%*\%} operation with a dense vector is defined
-#' @param x0 optional vector from which a least norm distance is searched for
-#' @return solution vector whose attribute 'mes' may contain a message about possible numerical problems
-#' @seealso [lsi], [ldp], [base::qr]
-#' @export
-lsi_ln=function(a, b, u=NULL, co=NULL, rcond=1.e10, mnorm=NULL, x0=NULL) {
+lsi_ln_old=function(a, b, u=NULL, co=NULL, rcond=1.e10, mnorm=NULL, x0=NULL) {
 #if(anyNA(u))
 #   browser()
    mes=""
-   tol=1.e-10
+   tol=1./rcond
    if (! is.qr(a)) {
       a=as.matrix(a)
       n=ncol(a)
@@ -743,8 +722,8 @@ lsi_ln=function(a, b, u=NULL, co=NULL, rcond=1.e10, mnorm=NULL, x0=NULL) {
       n=ncol(a$qr)
       aq=a
    }
-   d=diag(aq$qr)
-   aq$rank=sum(abs(d)>abs(d[1])/rcond)
+   d=abs(diag(aq$qr))
+   aq$rank=if (d[1L] <= tol) 0 else sum(d>d[1L]*tol)
    if (aq$rank == 0) {
       # matrix a is zero => no x can diminish the residual norm
       if (!is.null(u) && nrow(u) > 0) {
@@ -767,10 +746,10 @@ lsi_ln=function(a, b, u=NULL, co=NULL, rcond=1.e10, mnorm=NULL, x0=NULL) {
          return(double(n))
       }
    }
-   # here after the rank is > 0
+   # hereafter the rank is > 0
    rdefic=aq$rank < n
    if (!rdefic) {
-      # just passthrough params to lsi()
+      # a is full rank => just passthrough params to lsi()
       return(lsi(aq, b, u, co, rcond))
    }
    # prepare free variable substitution
@@ -781,16 +760,16 @@ lsi_ln=function(a, b, u=NULL, co=NULL, rcond=1.e10, mnorm=NULL, x0=NULL) {
    r=base::qr.R(aq)[i1,,drop=FALSE]
    r1=r[,i1,drop=FALSE]
    r2=r[,i2,drop=FALSE]
-   qrr=base::qr(t(r), LAPACK=T)
+   qrr=base::qr(t(r), LAPACK=TRUE)
    # null space and its complement bases
-   ba=base::qr.Q(qrr, complete=T)
+   ba=base::qr.Q(qrr, complete=TRUE)
    bal=ba[,i1,drop=FALSE]
    ban=ba[,i2,drop=FALSE]
    # least norm without constraints
    x=bal%*%base::backsolve(qrr$qr, qr.qty(aq, b)[qrr$pivot], transpose=TRUE)
    #x0=backsolve(r1, bt) # implicitly, free variables are set to zero
    #x=c(x0, rep(0., ndefic)) # we unpivot just before return
-   #browser()
+#browser()
    if (!is.null(u) && nrow(u)>0) {
       up=u[,aq$pivot,drop=FALSE]
       cou=co-up%*%x
@@ -815,11 +794,12 @@ lsi_ln=function(a, b, u=NULL, co=NULL, rcond=1.e10, mnorm=NULL, x0=NULL) {
             bau=Nulla(t(ut[ia,,drop=FALSE]))
 #if (anyNA(ut[-ia,,drop=FALSE]%*%bau))
 #   cat("sent NA in lsi_ln(.., u, ...)\n")
+            #mbau=if (is.null(mnorm)) bau else mnorm%*%bau
             yz=lsi_ln(bau[i1,,drop=FALSE], -ya[i1], ut[-ia,,drop=FALSE]%*%bau, cou[-ia], rcond=rcond)
             if (!anyNA(yz)) {
                # got a solution
                ya=ya+bau%*%yz
-               dx=bal%*%base::backsolve(qrr$qr, ya[i1], transpose=T)+ban%*%ya[i2]
+               dx=bal%*%base::backsolve(qrr$qr, ya[i1], transpose=TRUE)+ban%*%ya[i2]
                x=x+dx
                attr(x, "mes")=attr(yz, "mes")
             } else {
@@ -843,11 +823,12 @@ lsi_ln=function(a, b, u=NULL, co=NULL, rcond=1.e10, mnorm=NULL, x0=NULL) {
                x0=x0-x
             }
          } else {
-            mban=mnorm%*%ban
+            mnormp=mnorm[,aq$pivot,drop=FALSE]
+            mban=mnormp%*%ban
             if (is.null(x0)) {
-               x0=-mnorm%*%x
+               x0=-mnormp%*%x
             } else {
-               x0=mnorm%*%(x0-x)
+               x0=mnormp%*%(x0-x)
             }
          }
          z=lsi_ln(mban, x0, uz, cou)
@@ -859,6 +840,24 @@ lsi_ln=function(a, b, u=NULL, co=NULL, rcond=1.e10, mnorm=NULL, x0=NULL) {
 #browser()
             attr(x, "mes")=join("\n", attr(x, "mes"), "lsi_ln: Unfeasible constraints in null space. (It must not be. Round off errors struck again.)")
          }
+      }
+   } else if(!is.null(mnorm)) {
+      # solve without inequalities
+      mnorm=mnorm[,aq$pivot,drop=FALSE]
+      mban=mnorm%*%ban
+      if (is.null(x0)) {
+         x0=-mnorm%*%x
+      } else {
+         x0=mnorm%*%(x0-x)
+      }
+      z=lsi_ln(mban, x0)
+      if (!anyNA(z)) {
+         x=x+ban%*%z
+         attr(x, "mes")=join("\n", attr(x, "mes"), attr(z, "mes"))
+      } else {
+         #print(list(a=a, b=b, u=u, co=co))
+#browser()
+         attr(x, "mes")=join("\n", attr(x, "mes"), "lsi_ln: Unfeasible constraints in null space. (It must not be. Round off errors struck again.)")
       }
    }
    x[aq$pivot]=x
@@ -879,7 +878,8 @@ lsi_ln=function(a, b, u=NULL, co=NULL, rcond=1.e10, mnorm=NULL, x0=NULL) {
       ndefic, " free variable(s):\n",
       paste(dimnames(a)[[2]][aq$pivot[i2]],
       aq$pivot[-i1], sep="\t", collapse="\n"),
-      "\nLeast L2-norm solution is provided.",
+      if (is.null(mnorm)) "\nLeast L2-norm solution is provided." else
+      "\nLeast mnorm solution is provided",
       sep=""))
    return(x)
 }
@@ -898,12 +898,13 @@ lsi_ln=function(a, b, u=NULL, co=NULL, rcond=1.e10, mnorm=NULL, x0=NULL) {
 ldp=function(u, co, rcond=1.e10) {
    m=NROW(u)
    n=ncol(u)
-   tol=1.e-10
+   rcond=abs(rcond)
+   tol=1./rcond
    if (m == 0) {
       # no inequality to satisfy => trivial case
       return(double(n))
    }
-   rcond=abs(rcond)
+
    # eliminate NA from co
    i0=which(is.na(co))
    if (length(i0) > 0) {
@@ -915,32 +916,37 @@ ldp=function(u, co, rcond=1.e10) {
          return(rep(NA_real_, n))
       }
    }
-   # eliminate 0 rows from u
-   maxu=apply(u, 1, function(v) max(abs(v)))
-   i0=which(maxu < 1.e-13)
-   if (length(i0) > 0) {
-      if (all(co[i0] < tol)) {
+   # eliminate 0-made rows from u
+   i0=which(apply(abs(u), 1L, max) < tol)
+   if (length(i0) > 0L) {
+      if (all(co[i0] <= tol*100)) {
          u=u[-i0,,drop=FALSE]
          co=co[-i0]
          m=m-length(i0)
-         if (m == 0) {
+         if (m == 0L) {
             # no inequality to satisfy => trivial case
             return(double(n))
          }
       } else {
          # unfeasible 0 constraints
+         ibad=co[i0] > tol*100
+         ibad=i0[ibad]
+         nm=rownames(u)[ibad]
+         warning("ldp: there are ", length(ibad), " unenforceable 0-made inequalities:\n\t", paste0(ibad, if (is.null(nm)) NULL else
+         paste(":", nm, co[ibad], sep="\t"), collapse="\n\t"))
+#browser()
          return(NULL)
       }
    }
 
    maxco=max(co)
-   if (maxco<=tol) {
+   if (maxco<=tol*100) {
       # all rhs are <= 0 => trivial case
       return(double(n))
    }
    e=rbind(t(u), t(co))
    f=double(n+1L)
-   f[n+1]=1.
+   f[n+1L]=1.
    resnnls=nnls::nnls(e, f)
    feasible=sqrt(resnnls$deviance) > tol && resnnls$residuals[n+1] != 0.
    if (feasible) {
@@ -948,20 +954,20 @@ ldp=function(u, co, rcond=1.e10) {
       # check for numerical stability problems
       ux=u%*%x
       cou=co-ux
-      if (FALSE && any(cou > tol)) { # FALSE because it can worsen the situation
-         # second trial
-         e[n+1,]=cou
-         rn=nnls::nnls(e, f)
-         if (rn$residuals[n+1]!=0.) {
-            x=x-rn$residuals[1:n]/rn$residuals[n+1]
-         } else {
-            x=NULL
-         }
-      } else if (all(cou<0) && !all(x==0.)) {
+      if (any(ibad <- cou > tol*100)) {
+         nm=rownames(ibad)[ibad]
+         i=which(ibad)
+         mes=paste0("ldp: due to numerical instability the following ", length(i), " inequalities could not be enforced:\n\t",
+         paste0(i, if (is.null(nm)) NULL else
+            paste0(":\t", nm, "\t", cou[i]), collapse="\n\t"))
+         warning(mes)
+         return(NULL)
+      }
+      if (all(cou<0) && !all(x==0.)) {
          # round off error pushed the solution inside of feasible domain
          # shorten it till the closest border
          alpha=ux/co
-         alpha=min(alpha[alpha>=1.], na.rm=T)
+         alpha=min(alpha[alpha>=1.], na.rm=TRUE)
          x=x/alpha
       }
       #stopifnot(all(u%*%x-co >= -tol))
@@ -970,19 +976,19 @@ ldp=function(u, co, rcond=1.e10) {
    }
    return(x)
 }
-norm2=function(v)crossprod(as.numeric(v))[1L]
+norm2=function(v)sum(v*v)
 ls_ln_old=function(a, b, rcond=1.e10) {
    # least squares with least norm
    # no LAPACK in the second qr()
-   if (! is.qr(a)) {
+   tol=1./rcond
+   if (! is.qr(a))
       a=base::qr(a, LAPACK=TRUE)
-   }
    n=ncol(a$qr)
-   d=diag(a$qr)
-   a$rank=sum(abs(d)>abs(d[1])/rcond)
+   d=abs(diag(a$qr))
+   a$rank=if (d[1L] <= tol) 0L else sum(d>d[1L]*tol)
    rdefic=a$rank < n
-   i1=1:a$rank
-   i2=(a$rank+1):n
+   i1=seq_len(a$rank)
+   i2=a$rank+seq_len(n-a$rank)
    r=base::qr.R(a)[i1,,drop=FALSE]
    if (!rdefic) {
       # plain ls
@@ -993,7 +999,7 @@ ls_ln_old=function(a, b, rcond=1.e10) {
    # prepare free variable substitution
    r1=r[,i1,drop=FALSE]
    r2=r[,i2,drop=FALSE]
-   qrr=qr(t(r), LAPACK=F)
+   qrr=qr(t(r), LAPACK=FALSE)
    # null space and its complement bases
    ba=base::qr.Q(qrr, complete=TRUE)
    bal=ba[,i1,drop=FALSE]
@@ -1008,37 +1014,36 @@ ls_ln_old=function(a, b, rcond=1.e10) {
 #' @param a matrix or its QR decomposition
 #' @param b vector of right hand side
 #' @param rcond maximal condition number for rank definition
+#' @param mnorm norm matrix (can be dense or sparse) for which \code{\%*\%} operation with a dense vector is defined
+#' @param x0 optional vector from which a least norm distance is searched for
 #' @return solution vector
 #' @export
-ls_ln=function(a, b, rcond=1.e10) {
+ls_ln=function(a, b, rcond=1.e10, mnorm=NULL, x0=NULL) {
    # least squares with least norm
-   # LAPACK is called in the second qr() too.
-   if (! is.qr(a)) {
+   tol=1./rcond
+   if (!is.qr(a)) {
       a=base::qr(a, LAPACK=TRUE)
    }
    n=ncol(a$qr)
-   d=diag(a$qr)
-   a$rank=sum(abs(d)>abs(d[1])/rcond)
+   d=abs(diag(a$qr))
+   a$rank=if (d[1L] <= tol) 0L else sum(d > d[1L]*tol)
    if (a$rank == 0) {
-      return(double(n)) # return plain 0 vector
-   }
-   rdefic=a$rank < n
-   i1=seq(len=a$rank)
-   r=base::qr.R(a)[i1,,drop=FALSE]
-   if (!rdefic) {
-      # plain ls
-      x=base::backsolve(r, qr.qty(a, b))
+      return(if (is.null(x0)) double(n) else x0) # return plain [x]0 vector
+   } else if (a$rank == n) {
+      # full rank
+      x=backsolve(a$qr, qr.qty(a, b))
       x[a$pivot]=x
       return(x)
    }
-   ndefic=n-a$rank
-   i2=seq(a$rank+1, n, len=ndefic)
-   # prepare free variable substitution
-   qrr=base::qr(t(r), LAPACK=TRUE)
+   res=pnull(a, b, rcond=rcond)
+   xp=res$xp
+   B=res$B
+   # shift from x0
+   bp=if (is.null(x0)) xp else xp-x0
    # least norm
-   x=base::qr.qy(qrr, c(backsolve(qrr$qr, qr.qty(a, b)[qrr$pivot], transpose=TRUE), rep.int(0., ndefic)))
-   x[a$pivot]=x
-   return(x)
+   xp - B%*%(if (is.null(mnorm))
+      crossprod(B, bp) else
+      ls_ln(mnorm%*%B, mnorm%*%bp, rcond=rcond))
 }
 
 #' Linear Least Squares problem with inequality and equality constraints, least norm solution
@@ -1055,10 +1060,14 @@ ls_ln=function(a, b, rcond=1.e10) {
 #' @param e dense matrix of equality constraints
 #' @param ce right hand side vector of equality constraints
 #' @param rcond maximal condition number for determining rank deficient matrix
+#' @param mnorm matrix to be used to minimize the norm ||mnorm%*%x|| in
+#'   case of under-dermined system. If mnorm is NULL (default), it is
+#' @param x0 vector from which minimal norm should be searched when required
 #' @return solution vector whose attribute 'mes' may contain a message about possible numerical problems
 #' @seealso [lsi_ln]
 #' @export
-lsie_ln=function(a, b, u=NULL, co=NULL, e=NULL, ce=NULL, rcond=1.e10) {
+lsie_ln=function(a, b, u=NULL, co=NULL, e=NULL, ce=NULL, rcond=1.e10, mnorm=NULL, x0=NULL) {
+   tol=1./rcond
    if (is.qr(a)) {
       n=ncol(a$qr)
       aqr=TRUE
@@ -1073,40 +1082,81 @@ lsie_ln=function(a, b, u=NULL, co=NULL, e=NULL, ce=NULL, rcond=1.e10) {
       # new unknown vector.
       nr=nrow(e)
       nc=ncol(e)
-      if (nr > nc) {
-         x=rep(NA, n)
-         attr(x, "mes")="lsie_ln: matrix e is over determined."
-         return(x)
+      # eliminate 0 rows from e
+      maxe=apply(abs(e), 1L, max)
+      i0=which(maxe < tol)
+      if (length(i0) > 0) {
+         if (all(abs(ce[i0]) <= tol*100)) {
+            e=e[-i0,,drop=FALSE]
+            ce=ce[-i0]
+         } else {
+            # unfeasible 0 constraints
+            ibad=ce[i0] > tol*100
+            mes=paste0("lsie_ln: there are ", sum(ibad), " unenforceable 0-made equalities")
+            warning(mes)
+            return(structure(rep(NA_real_, n), mes=mes))
+         }
       }
-      bn=Nulla(t(e))
+      res=pnull(e, ce, rcond=rcond, keepqr=TRUE)
+      xp=res$xp
+      bn=res$B
       qe=attr(bn, "qr")
       if (qe$rank < nr) {
-         x=rep(NA, n)
-         attr(x, "mes")="lsie_ln: matrix e is rank deficient."
-         return(x)
+         # e is rank deficient, see if we can continue, i.e. redundant
+         # equalities can be enforced
+         qet=attr(bn, "qrat")
+         ira=seq_len(qe$rank)
+         qx=qr.solve(t(e[qet$pivot[ira],,drop=FALSE]), t(e[qet$pivot[-ira],,drop=FALSE]))
+         cetail=t(qx)%*%ce[qet$pivot[ira]]-ce[qet$pivot[-ira]]
+         if (any(ibad <- abs(cetail) > tol*100)) {
+            nm=rownames(ibad)[ibad]
+            vbad=cetail[ibad]
+            ibad=qet$pivot[-ira][ibad]
+            mes=paste0("lsie_ln: matrix e is rank deficient and ", length(ibad), " equalities are unenforceable:\n\t", paste0(ibad, if (is.null(nm)) NULL else paste0(":\t", nm), "\t", vbad, collapse="\n\t"), "\n")
+            warning(mes)
+            x=rep(NA_real_, n)
+            attr(x, "mes")=mes
+            return(x)
+         }
       }
-      # particular solution
-      xp=base::qr.qy(qe, c(backsolve(qe$qr, ce[qe$pivot], transpose=T), double(n-nr)))
+      mbn=if (is.null(mnorm)) NULL else
+         mnorm%*%bn
       if (aqr) {
          R=base::qr.R(a, complete=TRUE)
-         b=b-base::qr.qy(a, R%*%xp[a$pivot])
-         a=base::qr.qy(a, R%*%bn[a$pivot,,drop=FALSE])
+         bz=b-base::qr.qy(a, R%*%xp[a$pivot])
+         az=base::qr.qy(a, R%*%bn[a$pivot,,drop=FALSE])
       } else {
-         b=b-a%*%xp
-         a=a%*%bn
+         bz=b-a%*%xp
+         az=a%*%bn
       }
       if (!is.null(u)) {
-         co=co-u%*%xp
-         u=u%*%bn
+         coz=co-u%*%xp
+         uz=u%*%bn
+      } else {
+         uz=coz=NULL
       }
-      z=lsi_ln(a, b, u, co, rcond)
+      z0=if (is.null(x0)) NULL else crossprod(bn, x0)
+      z=lsi_ln(az, bz, uz, coz, rcond, mnorm=mbn, x0=z0)
+      if (anyNA(z)) {
+         mes="lsie_ln: failed to solve LSI in z-space"
+         warning(mes)
+         return(structure(rep(NA_real_, n), mes=mes))
+      }
       x=xp+bn%*%z
-      if (!is.null(attr(z, "mes"))) {
-         attr(x, "mes")=attr(z, "mes")
+      if (!is.null(u)) {
+         uco=u%*%x - co
+         if (any(ibad <- uco < -tol*100)) {
+            ibad=which(ibad)
+            nm=rownames(u)[ibad]
+            mes=paste0("lsie_ln: following ", length(ibad), " inequalities are not enforced:\n\t", paste0(ibad, if (is.null(nm)) NULL else
+               paste(":", nm, uco[ibad], sep="\t"), collapse="\n\t"))
+            warning(mes)
+            return(structure(rep(NA_real_, n), mes=mes))
+         }
       }
       x
    } else {
-      lsi_ln(a, b, u=u, co=co, rcond=rcond)
+      lsi_ln(a, b, u=u, co=co, rcond=rcond, mnorm=mnorm, x0=x0)
    }
 }
 
@@ -1120,15 +1170,14 @@ lsie_ln=function(a, b, u=NULL, co=NULL, e=NULL, ce=NULL, rcond=1.e10) {
 #' @return solution vector
 #' @export
 ls_ln_svd=function(a, b, rcond=1.e10) {
+   tol=1./rcond
    sa=svd(a)
    d=sa$d
-   rank=sum(d > d[1L]/rcond)
-   if (rank == 0L) {
+   rank=if (d[1L] <= tol) 0L else sum(d > d[1L]*tol)
+   if (rank == 0L)
       return(rep(0., ncol(a)))
-   }
    i=seq_len(rank)
-   x=sa$v[,i]%*%(crossprod(sa$u[,i], b)/d[i])
-   return(x)
+   sa$v[,i]%*%(crossprod(sa$u[,i], b)/d[i])
 }
 
 #' Total Least Squares \code{a\%*\%x ~= b}
@@ -1178,7 +1227,7 @@ tls=function(a, b) {
 lsi_reg=function(a, b, u=NULL, co=NULL, rcond=1.e10, mnorm=NULL, x0=NULL) {
    mes=""
    lambda=1./sqrt(rcond)
-   tol=1.e-10
+   tol=1./rcond
    if (is.qr(a)) {
       # get back the matrix from qr
       a=base::qr.X(a)
@@ -1194,14 +1243,14 @@ lsi_reg=function(a, b, u=NULL, co=NULL, rcond=1.e10, mnorm=NULL, x0=NULL) {
    }
    sva=svd(a)
    d=sva$d
-   arank=sum(d > d[1]*tol)
+   arank=if (d[1L] <= tol) 0L else sum(d > d[1L]*tol)
    x0=if (is.null(x0)) double(n) else x0
    if (arank == 0) {
       # matrix a is zero => no x can diminish the residual norm
       if (!is.null(u) && nrow(u) > 0) {
          # there are some inequalities to deal with
          co0=co-u%*%x0
-         if (any(co0 > tol)) {
+         if (any(co0 > tol*100)) {
             # at least we satisfy inequalities
             if (is.null(mnorm)) {
                dx=ldp(u, co0)
@@ -1405,20 +1454,123 @@ lsi_lim=function(a, b, u=NULL, co=NULL, rcond=1.e10, mnorm=NULL, x0=NULL) {
 #' @seealso [MASS::Null]
 #' @export
 Nulla=function (M, rcond=1.e10) {
-    tmp <- qr(as.matrix(M), LAPACK=TRUE)
-    d=abs(diag(tmp$qr))
-    n=length(d)
-#browser()
-    if (d[1L]==0.) {
-       tmp$rank = 0
-    } else {
-       tmp$rank = sum(d/d[1L] > 1./rcond)
-    }
-    set <- if (tmp$rank == 0L)
-        1L:n
-    else
-        -(1L:tmp$rank)
-    bn=qr.Q(tmp, complete = TRUE)[, set, drop = FALSE]
-    attr(bn, "qr")=tmp
-    return(bn)
+   tmp <- if (inherits(M, "qr")) M else qr(as.matrix(M), LAPACK=TRUE)
+   tol = 1./rcond
+   d=abs(diag(tmp$qr))
+   n=length(d)
+   tmp$rank = if (d[1L] <= tol) 0 else sum(d > d[1L]*tol)
+   set <- if (tmp$rank == 0L) seq_len(n) else -seq_len(tmp$rank)
+   structure(qr.Q(tmp, complete = TRUE)[, set, drop = FALSE], qr=tmp)
+}
+
+#' Particular least-squares solution and Null-space basis
+#'
+#' @description
+#' use Lapack to find a particular solution \code{xp} of under-determined least
+#' squares system \code{Ax=b} and build null space basis \code{B} of \code{A}
+#' (derived from MASS::Null). In such a way, a general solution is given by
+#' \code{x=xp+Bz} where z is an arbitrary vector of size \code{ncol(A)-rank(A)}.
+#' @param A matrix (or its QR decomposition) such that \code{A\%*\%B=0}
+#' where B is a basis of \code{Kern(A)} (aka Null-space).
+#' @param b is the right hand side of the least squares system \code{Ax=b}.
+#' @param qrat is QR decomposition of \code{t(A)}.
+#' @param rcond maximal condition number for rank definition
+#' @param keepqr if TRUE strore qr and qrat as attribute of B
+#' @return  alist with xp and B, particular solution and numeric matrix
+#'   whose columns are basis vectors. If requested, attributes 'qr' and
+#'   'qrat' of B contain QR decomposition of \code{A} and \code{t(A)} 
+#'   respectively.
+#' @examples
+#' A=diag(nrow=3L)[1:2,,drop=FALSE]
+#' b=A%*%(1:3)
+#' res=pnull(A, b)
+#' stopifnot(all.equal(res$xp, c(1:2,0)))
+#' stopifnot(all.equal(c(res$B), c(0,0,1)))
+#' @seealso [MASS::Null] [Nulla]
+#' @export
+pnull=function (A, b=NULL, qrat=NULL, rcond=1.e10, keepqr=FALSE) {
+   tmp <- if (inherits(A, "qr")) A else qr(as.matrix(A), LAPACK=TRUE)
+   d=abs(diag(tmp$qr))
+   n=length(d)
+   tol=1./rcond
+   tmp$rank = if (d[1L] <= tol) 0 else sum(d > d[1L]*tol)
+   xp=if (is.null(b)) rep(NA, ncol(tmp$qr)) else ls_0(tmp, b)
+   set <- if (tmp$rank == 0L) seq_len(n) else -seq_len(tmp$rank)
+   if (is.null(qrat))
+      qrat=qr(t(if (inherits(A, "qr")) qr.X(tmp, ncol=ncol(tmp$qr)) else A), LAPACK=TRUE)
+   qrat$rank=tmp$rank
+   B=qr.Q(qrat, complete = TRUE)[, set, drop = FALSE]
+   list(xp=xp, B=if (keepqr) structure(B, qr=tmp, qrat=qrat) else B)
+}
+#' Linear Least Squares with Inequality constraints, least norm solution
+#'
+#' @description
+#' solve linear least square problem \code{min_x ||A*x-b||}
+#' with inequality constraints \code{u\%*\%x >= co}
+#' If A is rank deficient, least norm solution \code{||mnorm\%*\%(x-x0)||} is used.
+#' If the parameter mnorm is NULL, it is treated as an identity matrix.
+#' If the vector x0 is NULL, it is treated as 0 vector.
+#' @param a dense matrix A or its QR decomposition
+#' @param b right hand side vector
+#' @param u dense matrix of inequality constraints
+#' @param co right hand side vector of inequality constraints
+#' @param rcond maximal condition number for determining rank deficient matrix
+#' @param mnorm norm matrix (can be dense or sparse) for which \code{\%*\%} operation with a dense vector is defined
+#' @param x0 optional vector from which a least norm distance is searched for
+#' @return solution vector whose attribute 'mes' may contain a message about possible numerical problems
+#' @seealso [lsi], [ldp], [base::qr]
+#' @export
+lsi_ln=function(a, b, u=NULL, co=NULL, rcond=1.e10, mnorm=NULL, x0=NULL) {
+   tol=1./rcond
+   if (length(u) == 0L || (all(abs(u) <= tol) && all(co <= tol)))
+      # no inequalities => plain ls_ln()
+      return(ls_ln(a, b, rcond, mnorm, x0))
+   if (!inherits(a, "qr")) {
+      aorig=a
+      a=qr(a, LAPACK=TRUE)
+   } else {
+      aorig=qr.X(a, ncol=ncol(a$qr))
+   }
+   # get rank
+   d=abs(diag(a$qr))
+   a$rank=if (d[1L] <= tol) 0L else sum(d > d[1L]*tol)
+   dima = dim(a$qr)
+   nr=dima[1L]
+   nc=dima[2L]
+   if (a$rank == nc)
+      # full rank => plain LSI
+      return(lsi(a, b, u, co, rcond))
+   # rank-deficient => get particular solution then least norm in the enforced inequalities
+   # first, solve augmented LDP
+   xp=ls_ln(a, b, rcond, mnorm, x0)
+   if (all(u%*%xp - co >= -tol*100))
+      return(xp) # all inequalities are respected => no additional job
+   i1=seq_len(a$rank)
+   i2=seq(a$rank+1L, nc);
+   R_I=diag(nrow=nc)
+   R_I[i1,i1]=backsolve(a$qr, diag(nrow=a$rank), k=a$rank)
+   R_I[i1,i2]=-R_I[i1,i1]%*%a$qr[i1,i2,drop=FALSE]
+   up=u[,a$pivot,drop=FALSE]%*%R_I
+   cop=co-u%*%xp
+   p=ldp(up, cop, rcond)
+   if (is.null(p))
+      return(structure(rep(NA_real_, nc), mes="lsi_ln: ldp() reveiled infeasible set. No solution."))
+   # find active set
+   ia=up%*%p-cop <= tol*100 # negative or nul is considered as enforced
+   if (sum(ia) == 0L)
+      return(xp) # no active set => xp is not modified
+   # add active set as equality constraint
+   x=lsie_ln(a, b, u[!ia,,drop=FALSE], co[!ia], e=u[ia,,drop=FALSE], ce=co[ia], rcond, mnorm, x0)
+   x
+}
+
+#' Particular solution of rank-deficient least squares
+#' 
+#' @param aq QR decomposition of a matrix
+#' @param b right-hand-side of the LS system
+#' @return solution vector where free variables are set to 0.
+ls_0=function(aq, b) {
+   x0=c(backsolve(aq$qr, qr.qty(aq, b), k=aq$rank), double(ncol(aq$qr)-aq$rank))
+   x0[aq$pivot]=x0
+   x0
 }

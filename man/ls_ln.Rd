@@ -9,7 +9,7 @@ ls_ln(a, b, rcond = 1e+10, mnorm = NULL, x0 = NULL)
 \arguments{
 \item{a}{matrix or its QR decomposition}
 
-\item{b}{vector of right hand side}
+\item{b}{vector or matrix of right hand sides}
 
 \item{rcond}{maximal condition number for rank definition}
 

@@ -76,10 +76,22 @@ test.lsi_ln <- function() {
    checkEqualsNumeric(x2, c(0.25, 0.25, 0.5))
 }
 test.ls_ln <- function() {
-   nr=5
-   nc=3
+   nr=5L
+   nc=3L
    a=matrix(rnorm(nr*nc), nrow=nr, ncol=nc)
-   a[,nc]=a[,nc-1] # make rank deficient
+   # full rank when b is a matrix
+   xe=matrix(rnorm(nc*2L), nrow=nc, ncol=2L)
+   b=a%*%xe
+   x=nlsic::ls_ln(a, b)
+   checkEqualsNumeric(x, xe)
+   # rank deficient case when b is a matrix
+   a[,nc]=a[,nc-1L] # make rank deficient
+   b=a%*%xe
+   # plain nlsic::ls_ln
+   x=nlsic::ls_ln(a, b)
+   # the last two must be equal
+   checkEqualsNumeric(x[nc,], x[nc-1L,])
+   # rank deficient case for one b
    xe=rnorm(nc)
    b=a%*%xe
    # plain nlsic::ls_ln

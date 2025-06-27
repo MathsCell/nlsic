@@ -1012,7 +1012,7 @@ ls_ln_old=function(a, b, rcond=1.e10) {
 #' Linear Least Squares, least norm solution
 #'
 #' @param a matrix or its QR decomposition
-#' @param b vector of right hand side
+#' @param b vector or matrix of right hand sides
 #' @param rcond maximal condition number for rank definition
 #' @param mnorm norm matrix (can be dense or sparse) for which \code{\%*\%} operation with a dense vector is defined
 #' @param x0 optional vector from which a least norm distance is searched for
@@ -1022,7 +1022,10 @@ ls_ln=function(a, b, rcond=1.e10, mnorm=NULL, x0=NULL) {
    # least squares with least norm
    tol=1./rcond
    if (!is.qr(a)) {
+      colnma=colnames(a)
       a=base::qr(a, LAPACK=TRUE)
+   } else {
+      colnma=colnames(a$qr)
    }
    n=ncol(a$qr)
    d=abs(diag(a$qr))
@@ -1032,7 +1035,17 @@ ls_ln=function(a, b, rcond=1.e10, mnorm=NULL, x0=NULL) {
    } else if (a$rank == n) {
       # full rank
       x=backsolve(a$qr, qr.qty(a, b))
-      x[a$pivot]=x
+      if (isTRUE(is.matrix(b)) && ncol(b) > 1L) {
+         x[a$pivot,]=x
+         if (!is.null(colnames(b)))
+            colnames(x)=colnames(b)
+         if (!is.null(colnma))
+            rownames(x)=colnma
+      } else {
+         x[a$pivot]=x
+         if (!is.null(colnma))
+            names(x)=colnma
+      }
       return(x)
    }
    res=pnull(a, b, rcond=rcond)
@@ -1570,7 +1583,14 @@ lsi_ln=function(a, b, u=NULL, co=NULL, rcond=1.e10, mnorm=NULL, x0=NULL) {
 #' @param b right-hand-side of the LS system
 #' @return solution vector where free variables are set to 0.
 ls_0=function(aq, b) {
-   x0=c(backsolve(aq$qr, qr.qty(aq, b), k=aq$rank), double(ncol(aq$qr)-aq$rank))
-   x0[aq$pivot]=x0
+   x0=backsolve(aq$qr, qr.qty(aq, b), k=aq$rank)
+   if (isTRUE(is.matrix(b)) && ncol(b) > 1L) {
+      x0=rbind(x0,  matrix(0., nrow=ncol(aq$qr)-aq$rank, ncol=ncol(b)))
+      x0[aq$pivot,]=x0
+      colnames(x0)=colnames(b)
+   } else {
+      x0=c(x0, double(ncol(aq$qr)-aq$rank))
+      x0[aq$pivot]=x0
+   }
    x0
 }

@@ -1,3 +1,7 @@
+## nlsic 1.1.1 (2025-06-26)
+
+ * ls_ln() and ls_0(): fixed case when rhs, b, is a multi-column matrix
+
 ## nlsic 1.1.0 (2025-05-14)
 
  * lsie_ln(): added mnorm and x0 parameters

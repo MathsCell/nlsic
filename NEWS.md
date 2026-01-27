@@ -1,3 +1,12 @@
+## nlsic 1.2.0 (2026-01-27)
+
+ * nlsic(): added reuse of jacobian in non linear iterations
+   - con$reuse_jac=TRUE (do it by default)
+   - con$max_reuse=5L (default maximal number of jacobian reuses)
+ * nlsic(): con$btfrac default value is brought to 0.8 instead of 0.5.
+ * lsi() and lsi_ln() return x with `aqr` attribute containing QR decomposition of
+   matrix a. This is used to spare some calculations in non linear iterations
+
 ## nlsic 1.1.1 (2025-06-26)
 
  * ls_ln() and ls_0(): fixed case when rhs, b, is a multi-column matrix

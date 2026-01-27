@@ -37,7 +37,7 @@ when cjac is set to TRUE.}
 \item errx=1.e-7 error on l2 norm of the iteration step sqrt(pt*p).
 \item maxit=100 maximum of newton iterations
 \item btstart=1 staring value for backtracking coefficient
-\item btfrac=0.5 (0;1) by this value we diminish the step till tight up
+\item btfrac=0.8 (0;1) by this factor we diminish the step till tight up
 to the quadratic model of norm reduction in backtrack (bt) iterations
 \item btdesc=0.1 (0;1) how good we have to tight up to the quadratic model
 0 - we are very relaxe, 1 - we are very tight (may need many bt iterations)
@@ -45,6 +45,8 @@ to the quadratic model of norm reduction in backtrack (bt) iterations
 \item btkmin=1.e-7 a floor value for backtracking fractioning
 \item trace=0 no information is printed during iterations (1 - print is active)
 \item rcond=1.e10 maximal condition number in QR decomposition
+\item reuse_jac=TRUE whether to reuse or not the jacobian matrix
+\item max_reuse=5L maximal number of jacobian reuses
 starting from which a matrix is considered as numerically rank
 deficient. The inverse of this number is also used as a measure of very
 small number.

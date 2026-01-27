@@ -154,7 +154,7 @@ test.nlsic <- function() {
    # prepare constraints
    uco=nlsic::uplo2uco(par, lower=c(a=1, b=1))
    # main call: solve the problem
-   fit=nlsic::nlsic(par, resid, uco$u, uco$co, x=x, meas=meas)
+   fit <- nlsic::nlsic(par, resid, uco$u, uco$co, x=x, con=list(history=TRUE), meas=meas)
    if (fit$error == 1) {
       stop(fit$mes)
    } else {
@@ -163,6 +163,7 @@ test.nlsic <- function() {
          warning(fit$mes)
       }
    }
+   checkTrue(any(fit$history$nb_reuse > 0L))
 }
 test.lsie_ln <- function() {
    nr=5

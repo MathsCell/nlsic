@@ -18,7 +18,16 @@
 join=function(sep, v, ...) {
   return(paste(c(v,...), sep="", collapse=sep))
 }
-
+#' Shortcut for glue::glue extrapolating character strings
+#' @param str a character string possibly containing expressions in \{...\}
+#' @param .envir environment where to evaluate expressions
+#' @return a character string with expressions evaluated and numbers formatted
+#' @importFrom glue glue
+#' @export
+g=function(str, .envir=parent.frame()) glue::glue(str, .transformer=function(text, envir) {
+   x <- glue::identity_transformer(text, envir)
+   if (is.numeric(x)) sprintf("%.5g", x) else x
+}, .envir=.envir, .trim=FALSE)
 #' Non Linear Least Squares with Inequality  Constraints
 #'
 #' @description
@@ -41,7 +50,7 @@ join=function(sep, v, ...) {
 #'   - errx=1.e-7 error on l2 norm of the iteration step sqrt(pt*p).
 #'   - maxit=100 maximum of newton iterations
 #'   - btstart=1 staring value for backtracking coefficient
-#'   - btfrac=0.5 (0;1) by this value we diminish the step till tight up
+#'   - btfrac=0.8 (0;1) by this factor we diminish the step till tight up
 #'     to the quadratic model of norm reduction in backtrack (bt) iterations
 #'   - btdesc=0.1 (0;1) how good we have to tight up to the quadratic model
 #'     0 - we are very relaxe, 1 - we are very tight (may need many bt iterations)
@@ -49,6 +58,8 @@ join=function(sep, v, ...) {
 #'   - btkmin=1.e-7 a floor value for backtracking fractioning
 #'   - trace=0 no information is printed during iterations (1 - print is active)
 #'   - rcond=1.e10 maximal condition number in QR decomposition
+#'   - reuse_jac=TRUE whether to reuse or not the jacobian matrix
+#'   - max_reuse=5L maximal number of jacobian reuses
 #'   starting from which a matrix is considered as numerically rank
 #'   deficient. The inverse of this number is also used as a measure of very
 #'   small number.
@@ -144,9 +155,9 @@ nlsic=function(par, r, u=NULL, co=NULL, control=list(), e=NULL, eco=NULL, flsi=l
    nm_par=names(par)
 
    # predefined controls, then overwritten by actual values
-   con=list(errx=1.e-7, maxit=100, btstart=1., btfrac=0.5, btdesc=0.1,
+   con=list(errx=1.e-7, maxit=100, btstart=1., btfrac=0.8, btdesc=0.1,
       btmaxit=15, btkmin=1.e-7, trace=0, rcond=1.e10, ci=list(p=0.95, report=TRUE),
-      history=FALSE, adaptbt=FALSE, mnorm=NULL, sln=FALSE, maxstep=NULL, monotone=FALSE)
+      history=FALSE, adaptbt=FALSE, mnorm=NULL, sln=FALSE, maxstep=NULL, monotone=FALSE, reuse_jac=TRUE, max_reuse=5L)
    nmsC=names(con)
    nmsci=names(con$ci)
    # predefined confidence interval parameters, then overwritten
@@ -178,7 +189,7 @@ nlsic=function(par, r, u=NULL, co=NULL, control=list(), e=NULL, eco=NULL, flsi=l
    }
 
    # history matrices
-   hpar=hp=hstep=hres=c()
+   hpar=hp=hstep=hres=hnb_reuse=c()
    if (con$history) {
       hpar=cbind(received=par)
       hist=list()
@@ -190,7 +201,7 @@ nlsic=function(par, r, u=NULL, co=NULL, control=list(), e=NULL, eco=NULL, flsi=l
       e=matrix(e, ncol=n)
       ne=nrow(e)
    } else {
-      ne=0
+      ne=0L
    }
    econstr=!is.null(e) && !is.null(eco) && nrow(e)>0 && ncol(e)==length(par)
 
@@ -252,19 +263,20 @@ nlsic=function(par, r, u=NULL, co=NULL, control=list(), e=NULL, eco=NULL, flsi=l
    }
 
    # newton globalized iterations
-   it=0
-   btit=0
-   converged=F
+   it=0L
+   btit=0L
+   nb_reuse=0L # number of jacobian reuses
+   converged=FALSE
    laststep=par
    laststep[]=0.
    p=laststep
    a=res=lres=vres=normp=NULL
    while (!converged && it < con$maxit) {
       mes=NULL
-      if (it == 0) {
-#browser()
+      if (it == 0L) {
+         #browser()
          # residual vector
-#cat("jac it=0", par, sep="\n")
+         #cat("jac it=0", par, sep="\n")
          lres=r(par, cjac=TRUE, ...)
          if (!is.null(lres$err) && lres$err) {
             return(list(
@@ -280,7 +292,7 @@ nlsic=function(par, r, u=NULL, co=NULL, control=list(), e=NULL, eco=NULL, flsi=l
          }
          res=as.numeric(lres$res)
          iva=which(!is.na(res)) # valid entries in res
-         if (length(iva)==0) {
+         if (length(iva)==0L) {
             # we check it only at it=0 hoping that NA-structure remains the same
             # all the long ietrations
             return(list(
@@ -289,7 +301,7 @@ nlsic=function(par, r, u=NULL, co=NULL, control=list(), e=NULL, eco=NULL, flsi=l
                mes="nlsic: no valid residual value."
             ))
          }
-         vres=res[iva]
+         vres=if (length(iva) < length(res)) res[iva] else res
          b=-res
          norb=sqrt(norm2(vres))
          #cat("norb0=", norb, "\n", sep="")
@@ -306,28 +318,37 @@ nlsic=function(par, r, u=NULL, co=NULL, control=list(), e=NULL, eco=NULL, flsi=l
             next
          }
       } else {
+         #if (it == 2 && interactive()) browser()
          b=-res
          norb=norres
+         vres=if (length(iva) < length(res)) res[iva] else res
       }
       # jacobian
-      a=NULL
       if ("jacobian" %in% names(lres) && !is.null(lres$jacobian)) {
          a=lres$jacobian[iva,,drop=FALSE]
          colnames(a)=nm_par
       } else {
          # may be we are here because the last call was with cjac=FALSE
-         if (it > 0) {
-#cat("jac", par, sep="\n")
-            lres=r(par, cjac=TRUE, ...)
-            res=as.numeric(lres$res)
-            iva=!is.na(res)
-            vres=res[iva]
-            b=-res
-            norres=sqrt(norm2(vres))
-            norb=norres
-            if ("jacobian" %in% names(lres) && !is.null(lres$jacobian)) {
-               a=lres$jacobian[iva,,drop=FALSE]
-               colnames(a)=nm_par
+         if (it > 0L) {
+            if (!isTRUE(con$reuse_jac) || btit > 1 || nb_reuse >= con$max_reuse) {
+               # need to recalculate jacobian
+               lres=r(par, cjac=TRUE, ...)
+               if ("jacobian" %in% names(lres) && !is.null(lres$jacobian)) {
+                  a=lres$jacobian[iva,,drop=FALSE]
+                  colnames(a)=nm_par
+               } else {
+                  a=NULL
+               }
+               res=as.numeric(lres$res)
+               vres=if (length(iva) < length(res)) res[iva] else res
+               b=-res
+               norres=sqrt(norm2(vres))
+               norb=norres
+               nb_reuse=0L
+            } else {
+               # reuse previous jacobian
+               # lres=r(par, cjac=FALSE, ...) # already calculated in the previous bt iteration
+               nb_reuse=nb_reuse+1L
             }
          }
       }
@@ -335,6 +356,7 @@ nlsic=function(par, r, u=NULL, co=NULL, control=list(), e=NULL, eco=NULL, flsi=l
          if (requireNamespace("numDeriv", quietly = TRUE)) {
             a=numDeriv::jacobian(function(x) as.numeric(r(x, cjac=FALSE, ...)$res), par)[iva,,drop=FALSE]
             colnames(a)=nm_par
+            nb_reuse=0L
          } else {
             return(list(
                par=c(par),
@@ -351,7 +373,7 @@ nlsic=function(par, r, u=NULL, co=NULL, control=list(), e=NULL, eco=NULL, flsi=l
       }
       # solve linear ls
       #browser()
-      ine=if (nrow(u) > 0) co-u%*%c(par) else NULL
+      ine=if (nrow(u) > 0L) co-u%*%c(par) else NULL
       # newton direction
       if (econstr) {
          if (con$sln) {
@@ -361,10 +383,11 @@ nlsic=function(par, r, u=NULL, co=NULL, control=list(), e=NULL, eco=NULL, flsi=l
          }
          p=nte%*%p
       } else {
+         aq=if (nb_reuse > 0L && !is.null(attr(p, "aqr"))) attr(p, "aqr") else a
          if (con$sln) {
-            p=flsi(a, -vres, u, ine, rcond=con$rcond, con$mnorm, -c(par))
+            p=flsi(aq, -vres, u, ine, rcond=con$rcond, con$mnorm, -c(par))
          } else {
-            p=flsi(a, -vres, u, ine, rcond=con$rcond)
+            p=flsi(aq, -vres, u, ine, rcond=con$rcond)
          }
       }
       if (anyNA(p)) {
@@ -404,35 +427,36 @@ nlsic=function(par, r, u=NULL, co=NULL, control=list(), e=NULL, eco=NULL, flsi=l
             mes=mes))
       }
       names(p)=nm_par
-#browser()
+      #browser()
       if (con$history) {
          hpar=cbind(hpar, par)
          colnames(hpar)[ncol(hpar)]=it
          hp=cbind(hp, c(p))
          hres=cbind(hres, res)
-         hist=list(par=hpar, p=hp, res=hres, step=hstep)
+         hnb_reuse=cbind(hnb_reuse, nb_reuse)
+         hist=list(par=hpar, p=hp, res=hres, step=hstep, nb_reuse=hnb_reuse)
       }
 
       normp=sqrt(norm2(p))
       converged=(normp <= con$errx)
-      if (normp == 0) {
+      if (normp == 0.) {
          ############### no need for backtracking at this stage
          laststep=p
          par[]=par+c(laststep)
          it=it+1
          btit=0
          resdecr=NULL
-#cat("normp=0", par, sep="\n")
+         #cat("normp=0", par, sep="\n")
          res=as.numeric(r(par, cjac=FALSE, ...)$res)
          iva=!is.na(res)
          vres=res[iva]
          norres=sqrt(norm2(vres))
          if (con$history) {
             hstep=cbind(hstep, c(laststep))
-            hist=list(par=hpar, p=hp, res=hres, step=hstep)
+            hist=list(par=hpar, p=hp, res=hres, step=hstep, nb_reuse=hnb_reuse)
          }
-         if (con$trace && (it < 10 || !it%%10)) {
-            cat("it=", it, "\tres=", norres, "\tnormstep=", normp, "\tbtk=", klast, "\n", sep="")
+         if (con$trace && (it < 10L || !it%%10L)) {
+            cat(g("it={it}\tres={norres}\tnormstep={normp}\tbtk={klast}\tnb_reuse={nb_reuse}\n"), sep="")
          }
          break
       }
@@ -454,15 +478,19 @@ nlsic=function(par, r, u=NULL, co=NULL, control=list(), e=NULL, eco=NULL, flsi=l
          }
       }
       # backtrack iterations
-      btit=0
+      btit=0L
       descending=FALSE
       while (!descending && btit < con$btmaxit && k >= con$btkmin) {
+         if (btit > 1L && nb_reuse > 0L) {
+            # restart outer iteration as reused jacobian is not good enough
+            break
+         }
          laststep=k*p
-#cat("btit=", btit, par+c(laststep), sep="\n")
+         #cat("btit=", btit, par+c(laststep), sep="\n")
          lres=try(r(par+c(laststep), cjac=FALSE, ...))
          if (inherits(lres, "try-error")) {
             k=max(k*con$btfrac, con$btkmin)
-            btit=btit+1
+            btit=btit+1L
             next
          }
          if (isTRUE(lres$err != 0)) {
@@ -478,8 +506,8 @@ nlsic=function(par, r, u=NULL, co=NULL, control=list(), e=NULL, eco=NULL, flsi=l
             )
          }
          res=as.numeric(lres$res)
-         iva=!is.na(res) # valid entries in res
-         vres=res[iva]
+         #iva=!is.na(res) # valid entries in res
+         vres=if (length(iva) < length(res)) res[iva] else res
          norres=sqrt(norm2(vres))
          #cat("norres=", norres, "\n", sep="")
          #scaprod=crossprod(vres, ap)-resap
@@ -492,6 +520,11 @@ nlsic=function(par, r, u=NULL, co=NULL, control=list(), e=NULL, eco=NULL, flsi=l
          #   norres < norb
          #)
          descending=(realdecr>=con$btdesc*lindecr)
+         #if (!descending) {
+         #   cat(g("not descending, realdecr={realdecr}; lindecr*btdesc={lindecr}*{con$btdesc}={lindecr*con$btdesc}\n"), sep="")
+         #} else {
+         #   cat(g(descending, realdecr={realdecr}; lindecr*btdesc={lindecr}*{con$btdesc}={lindecr*con$btdesc}\n"), sep="")
+         #}
          klast=k
          if (con$adaptbt) {
             h=max(min(2., 1./(2.-(norres-norb)*(norres+norb)/(resap*k))), con$btfrac)
@@ -507,7 +540,11 @@ nlsic=function(par, r, u=NULL, co=NULL, control=list(), e=NULL, eco=NULL, flsi=l
             k=k*con$btfrac
          }
          k=max(k, con$btkmin)
-         btit=btit+1
+         btit=btit+1L
+      }
+      if (btit > 1L && nb_reuse > 0L) {
+         #cat("restarting this iteration as reused jacobian is not good enough\n")
+         next
       }
       if (inherits(lres, "try-error")) {
          return(list(
@@ -523,23 +560,24 @@ nlsic=function(par, r, u=NULL, co=NULL, control=list(), e=NULL, eco=NULL, flsi=l
       }
 
       par[]=par+c(laststep)
-      it=it+1
+      it=it+1L
       if (con$monotone) {
          if (norres > norb) {
             converged=T
             mes=join("\n", mes, "nlsic: Non monotone decrease of cost function has occurred.")
          }
       }
-      if (con$trace && ((it < 10 || !it%%10) || converged)) {
-         cat("it=", it, "\tres=", norres, "\tnormstep=", normp, "\tbtk=", klast, "\n", sep="")
+      if (con$trace && ((it < 10L || !it%%10L) || converged)) {
+         #if (nb_reuse > 0L && klast != 1. && interactive()) browser()
+         cat(g("it={it}\tres={norres}\tnormstep={normp}\tbtk={klast}\tnb_reuse={nb_reuse}\n"), sep="")
       }
       if (con$history) {
          hstep=cbind(hstep, laststep)
-         hist=list(par=hpar, p=hp, res=hres, step=hstep)
+         hist=list(par=hpar, p=hp, res=hres, step=hstep, nb_reuse=hnb_reuse)
       }
    }
-   if (con$trace && !(it < 10 || !it%%10) && !converged) {
-      cat("it=", it, "\tres=", norres, "\tnormstep=", normp, "\tbtk=", klast, "\n", sep="")
+   if (con$trace && !(it < 10L || !it%%10L) && !converged) {
+      cat(g("it={it}\tres={norres}\tnormstep={normp}\tbtk={klast}\tnb_reuse={nb_reuse}\n"), sep="")
    }
    if (it >= con$maxit) {
       mes=join("\n", mes, "nlsic: Maximal non linear iteration number is achieved")
@@ -556,10 +594,10 @@ nlsic=function(par, r, u=NULL, co=NULL, control=list(), e=NULL, eco=NULL, flsi=l
    if (con$ci$report) {
       sd_res=sqrt(sum(vres**2)/fdeg)
       if (is.null(a)) {
-#cat("first jac", par, sep="\n")
+         #cat("first jac", par, sep="\n")
          a=r(par, TRUE, ...)$jacobian
          if (is.null(a)) {
-#cat("num jac", par, sep="\n")
+            #cat("num jac", par, sep="\n")
             if (requireNamespace("numDeriv", quietly = TRUE)) {
                a=numDeriv::jacobian(function(x) as.numeric(r(x, cjac=FALSE, ...)$res), par)
                colnames(a)=nm_par
@@ -707,6 +745,7 @@ lsi=function(a, b, u=NULL, co=NULL, rcond=1.e10, mnorm=NULL, x0=NULL) {
       warning(mes)
       return(structure(rep(NA_real_, n), mes=mes))
    }
+   attr(x, "aqr")=aq
    return(x)
 }
 lsi_ln_old=function(a, b, u=NULL, co=NULL, rcond=1.e10, mnorm=NULL, x0=NULL) {
@@ -1570,10 +1609,13 @@ lsi_ln=function(a, b, u=NULL, co=NULL, rcond=1.e10, mnorm=NULL, x0=NULL) {
       return(structure(rep(NA_real_, nc), mes="lsi_ln: ldp() reveiled infeasible set. No solution."))
    # find active set
    ia=up%*%p-cop <= tol*100 # negative or nul is considered as enforced
-   if (sum(ia) == 0L)
+   if (sum(ia) == 0L) {
+      attr(xp, "aqr")=a
       return(xp) # no active set => xp is not modified
+   }
    # add active set as equality constraint
    x=lsie_ln(a, b, u[!ia,,drop=FALSE], co[!ia], e=u[ia,,drop=FALSE], ce=co[ia], rcond, mnorm, x0)
+   attr(x, "aqr")=a
    x
 }
 
